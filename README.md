@@ -2,6 +2,7 @@
 
 This project contains standalone WebAssembly verification components used by TrustMee project.
 
+- `bootloader-verifier/`: bootloader layer component (`bootloader-verifier-component`) that imports TDX verifier interface and verifies RTMR0/RTMR1 policy
 - `tdx-verifier/`: TDX-related items (`dcap-qvl-wasi`, `tdx-verifier-component`, `tdx-verifier-test`)
 - `snp-verifier/`: SNP-related items (`snp-verifier-component`, `snp-verifier-test`)
 
@@ -19,7 +20,31 @@ For AMD SEV-SNP, use the builder script (it builds a containerized toolchain and
 
 The resulting component is created at `target/wasm32-wasip2/release/snp_verifier_component.wasm`.
 
+For the layered bootloader verifier component (imports TDX verifier interface and exports the same interface):
+
+`cargo build --manifest-path Cargo.toml -p bootloader-verifier-component --release --target wasm32-wasip2`
+
+Then compose bootloader + tdx so only bootloader exports are exposed:
+
+`bash bootloader-verifier/bootloader-verifier-component/scripts/build-bootloader-composed-component.sh`
+
+This script uses `wac`.
+Install once if needed:
+`cargo install wac-cli`
+
+The composed component is written to:
+`target/wasm32-wasip2/release/bootloader_tdx_verifier_component.wasm`.
+
+
 ## Run the verifier (host-side)
+
+For Bootloader + TDX:
+
+Run bootloader verifier test host:
+
+`cargo run -p bootloader-verifier-test -- --component target/wasm32-wasip2/release/bootloader_tdx_verifier_component.wasm --evidence-json bootloader-verifier/test_data/bootloader_evidence.json`
+
+For Intel TDX:
 
 `cargo run -p tdx-verifier-test -- --component target/wasm32-wasip2/release/tdx_verifier_component.wasm --quote tdx-verifier/test_data/tdx_quote.bin`
 
@@ -47,4 +72,3 @@ Optional inputs:
 If no VCEK/VLEK is provided, the component will fetch VCEK from AMD KDS using WASI-HTTP.
 If the host pre-opens a `cache/` directory for the component, fetched VCEKs are cached there.
 Set `SNP_VCEK_DISABLE_CACHE=1` to disable VCEK caching.
-

@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "bootloader-verifier/bootloader-verifier-component",
+    "bootloader-verifier/bootloader-verifier-test",
     "snp-verifier/snp-verifier-component",
     "snp-verifier/snp-verifier-test",
     "tdx-verifier/dcap-qvl-wasi",
