@@ -4,6 +4,8 @@ members = [
     "bootloader-verifier/bootloader-verifier-test",
     "snp-verifier/snp-verifier-component",
     "snp-verifier/snp-verifier-test",
+    "snp-verifier-host-crypto/snp-verifier-host-crypto-component",
+    "snp-verifier-host-crypto/snp-verifier-host-crypto-test",
     "tdx-verifier/dcap-qvl-wasi",
     "tdx-verifier/tdx-verifier-component",
     "tdx-verifier/tdx-verifier-test",
