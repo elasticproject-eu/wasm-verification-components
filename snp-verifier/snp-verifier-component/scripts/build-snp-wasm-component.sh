@@ -52,8 +52,8 @@ strum = { version = "0.27", features = ["derive"] }
 tracing = "0.1.43"
 EOF
 
-    # Avoid using /work/rust-toolchain.toml (1.85.1), which is too old for
-    # some transient dependencies selected for this isolated workspace.
+    # Pin this isolated workspace build to Rust 1.90.0 so it matches the
+    # toolchain expected by its transient dependency set.
     cd "$BUILD_ROOT"
     export RUSTUP_TOOLCHAIN=1.90.0
 
