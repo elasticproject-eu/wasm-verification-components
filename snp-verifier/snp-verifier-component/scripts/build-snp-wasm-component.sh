@@ -43,6 +43,7 @@ resolver = "2"
 [workspace.dependencies]
 anyhow = "1.0"
 base64 = "0.22.1"
+ciborium = "0.2.2"
 hex = "0.4.3"
 openssl = "0.10.75"
 serde = { version = "1.0", features = ["derive"] }

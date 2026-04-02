@@ -27,16 +27,20 @@ fn parse_expected_rtmr(field: &str, value: Option<&str>, default_hex: &str) -> R
 }
 
 fn split_evidence_and_reference(
-    evidence: &[u8],
-) -> Result<(Vec<u8>, Option<String>, Option<String>)> {
-    let value: Value = match serde_json::from_slice(evidence) {
+    input: &exports::trustee::verifier::verifier_interface::VerifierInput,
+) -> Result<(
+    trustee::verifier::verifier_interface::VerifierInput,
+    Option<String>,
+    Option<String>,
+)> {
+    let value: Value = match serde_json::from_slice(&input.evidence) {
         Ok(v) => v,
-        Err(_) => return Ok((evidence.to_vec(), None, None)),
+        Err(_) => return Ok((normalize_verifier_input(input), None, None)),
     };
 
     let obj = match value.as_object() {
         Some(v) => v,
-        None => return Ok((evidence.to_vec(), None, None)),
+        None => return Ok((normalize_verifier_input(input), None, None)),
     };
 
     let expected_rtmr0 = obj
@@ -63,13 +67,37 @@ fn split_evidence_and_reference(
                 .map(ToOwned::to_owned)
         });
 
-    let forwarded = match obj.get("tdx_evidence") {
-        Some(Value::String(s)) => s.as_bytes().to_vec(),
-        Some(v) => serde_json::to_vec(v).context("serialize `tdx_evidence`")?,
-        None => evidence.to_vec(),
+    let (forwarded_evidence, forwarded_media_type) = match obj.get("tdx_evidence") {
+        Some(Value::String(s)) => (
+            s.as_bytes().to_vec(),
+            "application/octet-stream".to_string(),
+        ),
+        Some(v) => (
+            serde_json::to_vec(v).context("serialize `tdx_evidence`")?,
+            "application/json".to_string(),
+        ),
+        None => (input.evidence.clone(), input.evidence_media_type.clone()),
     };
 
-    Ok((forwarded, expected_rtmr0, expected_rtmr1))
+    Ok((
+        trustee::verifier::verifier_interface::VerifierInput {
+            evidence: forwarded_evidence,
+            evidence_media_type: forwarded_media_type,
+            endorsements: input
+                .endorsements
+                .iter()
+                .map(
+                    |endorsement| trustee::verifier::verifier_interface::Endorsement {
+                        label: endorsement.label.clone(),
+                        media_type: endorsement.media_type.clone(),
+                        payload: endorsement.payload.clone(),
+                    },
+                )
+                .collect(),
+        },
+        expected_rtmr0,
+        expected_rtmr1,
+    ))
 }
 
 fn normalize_optional_data(
@@ -85,6 +113,26 @@ fn normalize_optional_data(
     }
 }
 
+fn normalize_verifier_input(
+    input: &exports::trustee::verifier::verifier_interface::VerifierInput,
+) -> trustee::verifier::verifier_interface::VerifierInput {
+    trustee::verifier::verifier_interface::VerifierInput {
+        evidence: input.evidence.clone(),
+        evidence_media_type: input.evidence_media_type.clone(),
+        endorsements: input
+            .endorsements
+            .iter()
+            .map(
+                |endorsement| trustee::verifier::verifier_interface::Endorsement {
+                    label: endorsement.label.clone(),
+                    media_type: endorsement.media_type.clone(),
+                    payload: endorsement.payload.clone(),
+                },
+            )
+            .collect(),
+    }
+}
+
 fn get_claim_str<'a>(claims: &'a Value, pointer: &str, field: &str) -> Result<&'a str> {
     claims
         .pointer(pointer)
@@ -93,11 +141,11 @@ fn get_claim_str<'a>(claims: &'a Value, pointer: &str, field: &str) -> Result<&'
 }
 
 fn evaluate_impl(
-    evidence: Vec<u8>,
+    input: exports::trustee::verifier::verifier_interface::VerifierInput,
     expected_report_data: exports::trustee::verifier::verifier_interface::OptionalData,
     expected_init_data_hash: exports::trustee::verifier::verifier_interface::OptionalData,
 ) -> Result<String> {
-    let (forwarded_evidence, rtmr0_hex, rtmr1_hex) = split_evidence_and_reference(&evidence)?;
+    let (forwarded_input, rtmr0_hex, rtmr1_hex) = split_evidence_and_reference(&input)?;
     let expected_rtmr0 =
         parse_expected_rtmr("expected_rtmr0", rtmr0_hex.as_deref(), DEFAULT_RTMR0_HEX)?;
     let expected_rtmr1 =
@@ -105,7 +153,7 @@ fn evaluate_impl(
 
     let tdx_verifier = trustee::verifier::verifier_interface::Verifier::new();
     let tdx_out = tdx_verifier.evaluate(
-        &forwarded_evidence,
+        &forwarded_input,
         &normalize_optional_data(expected_report_data),
         &normalize_optional_data(expected_init_data_hash),
     );
@@ -148,6 +196,10 @@ fn evaluate_impl(
         .as_object()
         .cloned()
         .ok_or_else(|| anyhow!("TDX claims are not a JSON object"))?;
+    claims.insert(
+        "claims_type".to_string(),
+        Value::String("bootloader-tdx".to_string()),
+    );
     claims.insert("bootloader_verified".to_string(), Value::Bool(true));
     claims.insert(
         "bootloader_expected_rtmr0".to_string(),
@@ -176,11 +228,11 @@ impl exports::trustee::verifier::verifier_interface::GuestVerifier for Verifier 
 
     fn evaluate(
         &self,
-        evidence: Vec<u8>,
+        input: exports::trustee::verifier::verifier_interface::VerifierInput,
         expected_report_data: exports::trustee::verifier::verifier_interface::OptionalData,
         expected_init_data_hash: exports::trustee::verifier::verifier_interface::OptionalData,
     ) -> String {
-        match evaluate_impl(evidence, expected_report_data, expected_init_data_hash) {
+        match evaluate_impl(input, expected_report_data, expected_init_data_hash) {
             Ok(v) => v,
             Err(e) => json!({
                 "status": "failed",

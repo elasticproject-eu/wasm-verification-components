@@ -6,13 +6,25 @@ interface verifier-interface {
     not-provided,
   }
 
+  record endorsement {
+    label: string,
+    media-type: string,
+    payload: list<u8>,
+  }
+
+  record verifier-input {
+    evidence: list<u8>,
+    evidence-media-type: string,
+    endorsements: list<endorsement>,
+  }
+
   type report-data = optional-data;
   type init-data-hash = optional-data;
 
   resource verifier {
     constructor();
     evaluate: func(
-      evidence: list<u8>,
+      input: verifier-input,
       expected-report-data: report-data,
       expected-init-data-hash: init-data-hash,
     ) -> string;

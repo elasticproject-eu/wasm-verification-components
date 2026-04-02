@@ -103,6 +103,20 @@ fn build_evidence_from_args(args: &Args) -> Result<Vec<u8>> {
     serde_json::to_vec(&evidence_json).context("serialize evidence JSON")
 }
 
+fn infer_media_type(bytes: &[u8]) -> &'static str {
+    if bytes
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .map(|byte| byte == b'{' || byte == b'[')
+        .unwrap_or(false)
+    {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -146,10 +160,15 @@ fn main() -> Result<()> {
     let verifier_iface = bindings.trustee_verifier_verifier_interface();
     let verifier = verifier_iface.verifier();
     let verifier_resource = verifier.call_constructor(&mut store)?;
+    let verifier_input = exports::trustee::verifier::verifier_interface::VerifierInput {
+        evidence: evidence_bytes.clone(),
+        evidence_media_type: infer_media_type(&evidence_bytes).to_string(),
+        endorsements: Vec::new(),
+    };
     let out = verifier.call_evaluate(
         &mut store,
         verifier_resource,
-        &evidence_bytes,
+        &verifier_input,
         &expected_report_data,
         &expected_init_data_hash,
     )?;

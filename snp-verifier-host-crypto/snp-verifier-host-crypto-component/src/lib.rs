@@ -9,11 +9,11 @@ wit_bindgen::generate!({
 });
 
 fn evaluate_impl(
-    evidence: Vec<u8>,
+    input: exports::trustee::verifier::verifier_interface::VerifierInput,
     expected_report_data: Option<Vec<u8>>,
     expected_init_data_hash: Option<Vec<u8>>,
 ) -> Result<String> {
-    let evidence = snp::parse_evidence_bytes(&evidence).context("parse SNP evidence")?;
+    let evidence = snp::parse_verifier_input(&input).context("parse SNP verifier input")?;
     let claims = snp::evaluate(
         &snp::Snp::new(),
         evidence,
@@ -41,7 +41,7 @@ impl exports::trustee::verifier::verifier_interface::GuestVerifier for Verifier 
 
     fn evaluate(
         &self,
-        evidence: Vec<u8>,
+        input: exports::trustee::verifier::verifier_interface::VerifierInput,
         expected_report_data: exports::trustee::verifier::verifier_interface::OptionalData,
         expected_init_data_hash: exports::trustee::verifier::verifier_interface::OptionalData,
     ) -> String {
@@ -54,7 +54,7 @@ impl exports::trustee::verifier::verifier_interface::GuestVerifier for Verifier 
             exports::trustee::verifier::verifier_interface::OptionalData::NotProvided => None,
         };
 
-        match evaluate_impl(evidence, expected_report_data, expected_init_data_hash) {
+        match evaluate_impl(input, expected_report_data, expected_init_data_hash) {
             Ok(v) => v,
             Err(e) => json!({
                 "status": "failed",

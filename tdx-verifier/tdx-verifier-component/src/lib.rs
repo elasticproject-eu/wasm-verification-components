@@ -159,11 +159,11 @@ fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<Vec<u8>>, Option<S
 }
 
 fn evaluate_impl(
-    evidence: Vec<u8>,
+    input: exports::trustee::verifier::verifier_interface::VerifierInput,
     expected_report_data: Option<Vec<u8>>,
     expected_init_data_hash: Option<Vec<u8>>,
 ) -> Result<String> {
-    let (quote_bin, ccel_bin, pccs_url) = parse_evidence(&evidence)?;
+    let (quote_bin, ccel_bin, pccs_url) = parse_evidence(&input.evidence)?;
     if quote_bin.is_empty() {
         bail!("TDX Quote is empty");
     }
@@ -222,6 +222,7 @@ fn evaluate_impl(
     let Value::Object(ref mut claim_map) = claim else {
         bail!("claim is not a JSON object");
     };
+    claim_map.insert("claims_type".to_string(), Value::String("tdx".to_string()));
     claim_map.extend(custom_claims);
 
     Ok(serde_json::to_string(claim_map)?)
@@ -242,7 +243,7 @@ impl exports::trustee::verifier::verifier_interface::GuestVerifier for Verifier 
 
     fn evaluate(
         &self,
-        evidence: Vec<u8>,
+        input: exports::trustee::verifier::verifier_interface::VerifierInput,
         expected_report_data: exports::trustee::verifier::verifier_interface::OptionalData,
         expected_init_data_hash: exports::trustee::verifier::verifier_interface::OptionalData,
     ) -> String {
@@ -255,7 +256,7 @@ impl exports::trustee::verifier::verifier_interface::GuestVerifier for Verifier 
             exports::trustee::verifier::verifier_interface::OptionalData::NotProvided => None,
         };
 
-        match evaluate_impl(evidence, expected_report_data, expected_init_data_hash) {
+        match evaluate_impl(input, expected_report_data, expected_init_data_hash) {
             Ok(v) => v,
             Err(e) => json!({
                 "status": "failed",

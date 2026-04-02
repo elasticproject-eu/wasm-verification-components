@@ -11,9 +11,7 @@ use sev::{
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wasm_verification_component::{
-    verify_snp_crypto_host, HostProcessorGeneration, HostVekKind,
-};
+use wasm_verification_component::{verify_snp_crypto_host, HostProcessorGeneration, HostVekKind};
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
@@ -87,6 +85,20 @@ fn unique_cache_dir(base: &Path) -> Result<PathBuf> {
     let dir = base.join(format!("snp-vcek-cache-{nanos:x}-{pid}-{seq}"));
     std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     Ok(dir)
+}
+
+fn infer_media_type(bytes: &[u8]) -> &'static str {
+    if bytes
+        .iter()
+        .copied()
+        .find(|byte| !byte.is_ascii_whitespace())
+        .map(|byte| byte == b'{' || byte == b'[')
+        .unwrap_or(false)
+    {
+        "application/json"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 fn main() -> Result<()> {
@@ -174,10 +186,15 @@ fn main() -> Result<()> {
     let verifier_iface = bindings.trustee_verifier_verifier_interface();
     let verifier = verifier_iface.verifier();
     let verifier_resource = verifier.call_constructor(&mut store)?;
+    let verifier_input = exports::trustee::verifier::verifier_interface::VerifierInput {
+        evidence: evidence_bytes.clone(),
+        evidence_media_type: infer_media_type(&evidence_bytes).to_string(),
+        endorsements: Vec::new(),
+    };
     let out = verifier.call_evaluate(
         &mut store,
         verifier_resource,
-        &evidence_bytes,
+        &verifier_input,
         &expected_report_data,
         &expected_init_data_hash,
     )?;
@@ -248,10 +265,8 @@ impl trustee::verifier::snp_host_crypto_interface::Host for HostState {
         vendor_ask_der: Vec<u8>,
         vendor_asvk_der: Vec<u8>,
         fetched_vcek_der: trustee::verifier::snp_host_crypto_interface::OptionalBytes,
-    ) -> std::result::Result<
-        trustee::verifier::snp_host_crypto_interface::VerifiedVekMeta,
-        String,
-    > {
+    ) -> std::result::Result<trustee::verifier::snp_host_crypto_interface::VerifiedVekMeta, String>
+    {
         let processor = match processor {
             trustee::verifier::snp_host_crypto_interface::ProcessorGeneration::Milan => {
                 HostProcessorGeneration::Milan
@@ -279,23 +294,31 @@ impl trustee::verifier::snp_host_crypto_interface::Host for HostState {
             &vendor_asvk_der,
             fetched_vcek_der.as_deref(),
         )
-        .map(|meta| trustee::verifier::snp_host_crypto_interface::VerifiedVekMeta {
-            vek_kind: match meta.vek_kind {
-                HostVekKind::Vcek => trustee::verifier::snp_host_crypto_interface::VekKind::Vcek,
-                HostVekKind::Vlek => trustee::verifier::snp_host_crypto_interface::VekKind::Vlek,
+        .map(
+            |meta| trustee::verifier::snp_host_crypto_interface::VerifiedVekMeta {
+                vek_kind: match meta.vek_kind {
+                    HostVekKind::Vcek => {
+                        trustee::verifier::snp_host_crypto_interface::VekKind::Vcek
+                    }
+                    HostVekKind::Vlek => {
+                        trustee::verifier::snp_host_crypto_interface::VekKind::Vlek
+                    }
+                },
+                hw_id: match meta.hw_id {
+                    Some(bytes) => {
+                        trustee::verifier::snp_host_crypto_interface::OptionalBytes::Value(bytes)
+                    }
+                    None => {
+                        trustee::verifier::snp_host_crypto_interface::OptionalBytes::NotProvided
+                    }
+                },
+                bootloader_spl: meta.bootloader_spl,
+                tee_spl: meta.tee_spl,
+                snp_spl: meta.snp_spl,
+                microcode_spl: meta.microcode_spl,
+                fmc_spl: meta.fmc_spl,
             },
-            hw_id: match meta.hw_id {
-                Some(bytes) => trustee::verifier::snp_host_crypto_interface::OptionalBytes::Value(
-                    bytes,
-                ),
-                None => trustee::verifier::snp_host_crypto_interface::OptionalBytes::NotProvided,
-            },
-            bootloader_spl: meta.bootloader_spl,
-            tee_spl: meta.tee_spl,
-            snp_spl: meta.snp_spl,
-            microcode_spl: meta.microcode_spl,
-            fmc_spl: meta.fmc_spl,
-        })
+        )
         .map_err(|err| format!("{err:#}"))
     }
 }

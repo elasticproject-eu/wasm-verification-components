@@ -444,7 +444,11 @@ fn fetch_collateral_uncached(endpoints: &PcsEndpoints) -> Result<QuoteCollateral
     })
 }
 
-pub fn get_collateral_cached(pccs_url: Option<&str>, quote: &[u8], cache_dir: &Path) -> Result<QuoteCollateralV3> {
+pub fn get_collateral_cached(
+    pccs_url: Option<&str>,
+    quote: &[u8],
+    cache_dir: &Path,
+) -> Result<QuoteCollateralV3> {
     let pccs_url = pccs_url.unwrap_or(DEFAULT_PCS_URL);
 
     let quote_obj = dcap_qvl::quote::Quote::parse(quote).context("parse quote")?;

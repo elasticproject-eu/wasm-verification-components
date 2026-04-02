@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use asn1_rs::{oid, FromDer, Integer, OctetString, Oid};
-use base64::{engine::general_purpose::STANDARD, Engine};
+use ciborium::from_reader;
 use openssl::{
     nid::Nid,
     x509::{self, X509},
@@ -27,6 +27,8 @@ use strum::{Display, EnumIter, EnumString, IntoEnumIterator};
 use tracing::{debug, warn};
 use x509_parser::prelude::*;
 
+pub const SNP_COLLATERAL_MEDIA_TYPE: &str = "application/vnd.trustmee.snp-collateral+cbor";
+
 #[derive(Serialize, Deserialize)]
 pub struct SnpEvidence {
     attestation_report: AttestationReport,
@@ -45,6 +47,11 @@ impl SnpEvidence {
     }
 }
 
+#[derive(Deserialize)]
+struct SnpCollateral {
+    cert_chain: Vec<CertTableEntry>,
+}
+
 pub fn parse_evidence_bytes(evidence: &[u8]) -> Result<SnpEvidence> {
     if let Ok(s) = std::str::from_utf8(evidence) {
         if s.trim_start().starts_with('{') {
@@ -55,6 +62,39 @@ pub fn parse_evidence_bytes(evidence: &[u8]) -> Result<SnpEvidence> {
 
     let report = AttestationReport::from_bytes(evidence).context("parse SNP report bytes")?;
     Ok(SnpEvidence::new(report, None))
+}
+
+pub fn parse_verifier_input(
+    input: &crate::exports::trustee::verifier::verifier_interface::VerifierInput,
+) -> Result<SnpEvidence> {
+    let mut evidence = parse_evidence_bytes(&input.evidence).context("parse SNP evidence")?;
+    let mut collateral = None;
+
+    for endorsement in &input.endorsements {
+        if endorsement.media_type != SNP_COLLATERAL_MEDIA_TYPE {
+            continue;
+        }
+
+        let parsed: SnpCollateral =
+            from_reader(endorsement.payload.as_slice()).with_context(|| {
+                format!(
+                    "parse SNP collateral endorsement `{}` as CBOR payload",
+                    endorsement.label
+                )
+            })?;
+        if collateral.replace(parsed.cert_chain).is_some() {
+            bail!("multiple SNP collateral endorsements were provided");
+        }
+    }
+
+    if let Some(cert_chain) = collateral {
+        if evidence.cert_chain.is_some() {
+            bail!("SNP evidence already contains `cert_chain`; refuse duplicate collateral");
+        }
+        evidence.cert_chain = Some(cert_chain);
+    }
+
+    Ok(evidence)
 }
 
 pub(crate) const HW_ID_OID: Oid<'static> = oid!(1.3.6 .1 .4 .1 .3704 .1 .4);
@@ -524,6 +564,8 @@ pub(crate) fn verify_report_tcb(
 /// Returns a JSON-formatted map of parsed claims.
 pub(crate) fn parse_tee_evidence(report: &AttestationReport) -> serde_json::Value {
     json!({
+        "claims_type": "snp",
+
         // policy fields
         "policy_abi_major": report.policy.abi_major(),
         "policy_abi_minor": report.policy.abi_minor(),
@@ -543,9 +585,9 @@ pub(crate) fn parse_tee_evidence(report: &AttestationReport) -> serde_json::Valu
         "platform_smt_enabled": report.plat_info.smt_enabled(),
 
         // measurements
-        "measurement": STANDARD.encode(report.measurement),
-        "report_data": STANDARD.encode(report.report_data),
-        "init_data": STANDARD.encode(report.host_data),
+        "measurement": hex::encode(report.measurement),
+        "report_data": hex::encode(report.report_data),
+        "init_data": hex::encode(report.host_data),
     })
 }
 
