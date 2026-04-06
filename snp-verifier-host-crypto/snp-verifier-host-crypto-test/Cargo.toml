@@ -5,11 +5,12 @@ edition = "2021"
 
 [dependencies]
 anyhow.workspace = true
+asn1-rs = "0.7.1"
 clap.workspace = true
 hex.workspace = true
+openssl.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-wasm-verification-component = { path = "../../../trustmee-verification-library" }
 sev = { git = "https://github.com/virtee/sev", rev = "d487809188c3c92e397bc92e2cb2a85eb982c980", default-features = false, features = [
     "openssl",
     "snp",
@@ -18,3 +19,4 @@ sev = { git = "https://github.com/virtee/sev", rev = "d487809188c3c92e397bc92e2c
 wasmtime = { version = "=25.0.3", features = ["component-model"] }
 wasmtime-wasi = { version = "=25.0.3" }
 wasmtime-wasi-http = { version = "=25.0.3" }
+x509-parser = "0.18.0"
