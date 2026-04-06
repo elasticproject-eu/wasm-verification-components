@@ -11,10 +11,13 @@ use sev::{
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use wasm_verification_component::{verify_snp_crypto_host, HostProcessorGeneration, HostVekKind};
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
+
+mod host_crypto;
+
+use host_crypto::{verify_snp_crypto_host, HostProcessorGeneration, HostVekKind};
 
 wasmtime::component::bindgen!({
     path: "../snp-verifier-host-crypto-component/wit",
