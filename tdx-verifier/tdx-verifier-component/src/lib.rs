@@ -2,12 +2,17 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use chrono::DateTime;
 use dcap_qvl::verify::VerifiedReport;
+use dcap_qvl::QuoteCollateralV3;
 use eventlog::{ccel::tcg_enum::TcgAlgorithm, CcEventLog, ReferenceMeasurement};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime};
+
+/// CMW endorsement media type that carries a pre-fetched TDX collateral
+/// (`QuoteCollateralV3` serialized as CBOR). Keep this in sync with the host
+/// constant in `trustmee_input::TDX_COLLATERAL_MEDIA_TYPE`.
+const TDX_COLLATERAL_MEDIA_TYPE: &str = "application/vnd.trustmee.tdx-collateral+cbor";
 
 mod tdx {
     pub mod claims;
@@ -120,10 +125,17 @@ fn cache_root_from_preopens() -> Result<PathBuf> {
 fn ecdsa_quote_verification_via_dcap_qvl(
     quote: &[u8],
     pccs_url: Option<&str>,
+    cmw_collateral: Option<QuoteCollateralV3>,
 ) -> Result<Map<String, Value>> {
-    let cache_dir = cache_root_from_preopens()?.join("dcap-qvl-cache");
-    let collateral = dcap_qvl_wasi::get_collateral_cached(pccs_url.as_deref(), quote, &cache_dir)
-        .context("get collateral")?;
+    let (collateral) = match cmw_collateral {
+        Some(c) => (c),
+        None => {
+            let cache_dir = cache_root_from_preopens()?.join("dcap-qvl-cache");
+            let c = dcap_qvl_wasi::get_collateral_cached(pccs_url, quote, &cache_dir)
+                .context("get collateral")?;
+            c
+        }
+    };
     let now = now_secs();
     let verified = dcap_qvl::verify::verify(quote, &collateral, now)
         .context("dcap-qvl quote verification failed")?;
@@ -132,6 +144,22 @@ fn ecdsa_quote_verification_via_dcap_qvl(
         claims.insert("collateral_expired".to_string(), Value::Bool(true));
     }
     Ok(claims)
+}
+
+/// Look up a TDX collateral endorsement in the CMW and decode it.
+fn cmw_tdx_collateral(
+    endorsements: &[exports::trustee::verifier::verifier_interface::Endorsement],
+) -> Result<Option<QuoteCollateralV3>> {
+    for endorsement in endorsements {
+        if endorsement.media_type != TDX_COLLATERAL_MEDIA_TYPE {
+            continue;
+        }
+        let collateral: QuoteCollateralV3 =
+            ciborium::de::from_reader(endorsement.payload.as_slice())
+                .context("CBOR-decode TDX collateral endorsement")?;
+        return Ok(Some(collateral));
+    }
+    Ok(None)
 }
 
 fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<Vec<u8>>, Option<String>)> {
@@ -168,7 +196,14 @@ fn evaluate_impl(
         bail!("TDX Quote is empty");
     }
 
-    let custom_claims = ecdsa_quote_verification_via_dcap_qvl(&quote_bin, pccs_url.as_deref())?;
+    // Prefer CMW-provided TDX collateral over fetching from PCS.
+    let cmw_collateral = cmw_tdx_collateral(&input.endorsements)?;
+
+    let custom_claims = ecdsa_quote_verification_via_dcap_qvl(
+        &quote_bin,
+        pccs_url.as_deref(),
+        cmw_collateral,
+    )?;
     let quote = tdx::quote::parse_tdx_quote(&quote_bin).context("parse TDX quote")?;
 
     if let Some(expected) = expected_report_data {

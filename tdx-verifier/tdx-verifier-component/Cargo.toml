@@ -17,6 +17,7 @@ base64.workspace = true
 bitflags = "2.10.0"
 byteorder.workspace = true
 chrono.workspace = true
+ciborium.workspace = true
 dcap-qvl = { version = "0.3.6", default-features = false, features = ["std", "rustcrypto"] }
 dcap-qvl-wasi = { path = "../dcap-qvl-wasi", features = ["wasi-http"] }
 eventlog = { path = "../eventlog" }
