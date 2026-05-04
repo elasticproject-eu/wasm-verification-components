@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::sync::LazyLock;
+use std::time::{Duration, SystemTime};
 
 /// CMW endorsement media type that carries a pre-fetched TDX collateral
 /// (`QuoteCollateralV3` serialized as CBOR). Keep this in sync with the host
