@@ -6,6 +6,8 @@ members = [
     "snp-verifier/snp-verifier-test",
     "snp-verifier-host-crypto/snp-verifier-host-crypto-component",
     "snp-verifier-host-crypto/snp-verifier-host-crypto-test",
+    "sgx-verifier/sgx-verifier-component",
+    "sgx-verifier/sgx-verifier-test",
     "tdx-verifier/dcap-qvl-wasi",
     "tdx-verifier/tdx-verifier-component",
     "tdx-verifier/tdx-verifier-test",
