@@ -257,7 +257,7 @@ fn evaluate_impl(
     let Value::Object(ref mut claim_map) = claim else {
         bail!("claim is not a JSON object");
     };
-    claim_map.insert("claims_type".to_string(), Value::String("tdx".to_string()));
+    claim_map.insert("tee_type".to_string(), Value::String("tdx".to_string()));
     claim_map.extend(custom_claims);
 
     Ok(serde_json::to_string(claim_map)?)

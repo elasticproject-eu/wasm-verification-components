@@ -250,7 +250,7 @@ fn evaluate_impl(
     let Value::Object(ref mut claim_map) = claim else {
         bail!("claim is not a JSON object");
     };
-    claim_map.insert("claims_type".to_string(), Value::String("sgx".to_string()));
+    claim_map.insert("tee_type".to_string(), Value::String("sgx".to_string()));
     claim_map.extend(custom_claims);
 
     emit_collateral_fetch_timing("Sgx", timing.collateral_fetch_ms);

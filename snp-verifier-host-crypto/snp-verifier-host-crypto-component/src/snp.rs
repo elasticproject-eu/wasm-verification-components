@@ -434,7 +434,7 @@ fn compare_verified_vek_meta_to_report(
 /// Returns a JSON-formatted map of parsed claims.
 pub(crate) fn parse_tee_evidence(report: &AttestationReport) -> serde_json::Value {
     json!({
-        "claims_type": "snp",
+        "tee_type": "snp",
 
         // policy fields
         "policy_abi_major": report.policy.abi_major(),
