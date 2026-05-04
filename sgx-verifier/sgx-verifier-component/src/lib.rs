@@ -48,9 +48,6 @@ wit_bindgen::generate!({
 
 #[derive(Debug, Deserialize)]
 struct SgxEvidenceJson {
-    /// Optional PCCS URL for collateral lookup.
-    #[serde(default)]
-    pccs_url: Option<String>,
     /// Base64 encoded SGX quote bytes.
     quote: String,
 }
@@ -146,7 +143,6 @@ struct TimingAccumulator {
 
 fn ecdsa_quote_verification_via_dcap_qvl(
     quote: &[u8],
-    pccs_url: Option<&str>,
     cmw_collateral: Option<QuoteCollateralV3>,
     timing: &mut TimingAccumulator,
 ) -> Result<Map<String, Value>> {
@@ -155,7 +151,7 @@ fn ecdsa_quote_verification_via_dcap_qvl(
         None => {
             let cache_dir = cache_root_from_preopens()?.join("dcap-qvl-cache");
             let t0 = Instant::now();
-            let c = dcap_qvl_wasi::get_collateral_cached(pccs_url, quote, &cache_dir)
+            let c = dcap_qvl_wasi::get_collateral_cached(None, quote, &cache_dir)
                 .context("get collateral")?;
             (c, t0.elapsed().as_secs_f64() * 1000.0)
         }
@@ -186,7 +182,7 @@ fn cmw_sgx_collateral(
     Ok(None)
 }
 
-fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<String>)> {
+fn parse_evidence(evidence: &[u8]) -> Result<Vec<u8>> {
     if let Ok(s) = std::str::from_utf8(evidence) {
         if s.trim_start().starts_with('{') {
             let ev: SgxEvidenceJson = serde_json::from_str(s).context("parse evidence JSON")?;
@@ -196,10 +192,10 @@ fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<String>)> {
             let quote_bin = base64::engine::general_purpose::STANDARD
                 .decode(ev.quote)
                 .context("decode base64 quote")?;
-            return Ok((quote_bin, ev.pccs_url));
+            return Ok(quote_bin);
         }
     }
-    Ok((evidence.to_vec(), None))
+    Ok(evidence.to_vec())
 }
 
 fn parse_sgx_quote(quote: &[u8]) -> Result<types::sgx_quote3_t> {
@@ -217,7 +213,7 @@ fn evaluate_impl(
     expected_init_data_hash: Option<Vec<u8>>,
 ) -> Result<String> {
     let mut timing = TimingAccumulator::default();
-    let (quote_bin, pccs_url) = parse_evidence(&input.evidence)?;
+    let quote_bin = parse_evidence(&input.evidence)?;
     if quote_bin.is_empty() {
         bail!("SGX Quote is empty");
     }
@@ -225,7 +221,6 @@ fn evaluate_impl(
     let cmw_collateral = cmw_sgx_collateral(&input.endorsements)?;
     let custom_claims = ecdsa_quote_verification_via_dcap_qvl(
         &quote_bin,
-        pccs_url.as_deref(),
         cmw_collateral,
         &mut timing,
     )?;
