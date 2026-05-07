@@ -2,12 +2,18 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use chrono::DateTime;
 use dcap_qvl::verify::VerifiedReport;
+use dcap_qvl::QuoteCollateralV3;
 use eventlog::{ccel::tcg_enum::TcgAlgorithm, CcEventLog, ReferenceMeasurement};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
+
+/// CMW endorsement media type that carries a pre-fetched TDX collateral
+/// (`QuoteCollateralV3` serialized as CBOR). Keep this in sync with the host
+/// constant in `trustmee_input::TDX_COLLATERAL_MEDIA_TYPE`.
+const TDX_COLLATERAL_MEDIA_TYPE: &str = "application/vnd.trustmee.tdx-collateral+cbor";
 
 mod tdx {
     pub mod claims;
@@ -26,9 +32,6 @@ struct TdxEvidenceJson {
     /// Base64 encoded CCEL ACPI table bytes.
     #[serde(default)]
     cc_eventlog: Option<String>,
-    /// Optional PCCS URL for collateral lookup.
-    #[serde(default)]
-    pccs_url: Option<String>,
     /// Base64 encoded TDX quote bytes.
     quote: String,
 }
@@ -119,11 +122,16 @@ fn cache_root_from_preopens() -> Result<PathBuf> {
 
 fn ecdsa_quote_verification_via_dcap_qvl(
     quote: &[u8],
-    pccs_url: Option<&str>,
+    cmw_collateral: Option<QuoteCollateralV3>,
 ) -> Result<Map<String, Value>> {
-    let cache_dir = cache_root_from_preopens()?.join("dcap-qvl-cache");
-    let collateral = dcap_qvl_wasi::get_collateral_cached(pccs_url.as_deref(), quote, &cache_dir)
-        .context("get collateral")?;
+    let collateral = match cmw_collateral {
+        Some(c) => c,
+        None => {
+            let cache_dir = cache_root_from_preopens()?.join("dcap-qvl-cache");
+            dcap_qvl_wasi::get_collateral_cached(None, quote, &cache_dir)
+                .context("get collateral")?
+        }
+    };
     let now = now_secs();
     let verified = dcap_qvl::verify::verify(quote, &collateral, now)
         .context("dcap-qvl quote verification failed")?;
@@ -134,7 +142,23 @@ fn ecdsa_quote_verification_via_dcap_qvl(
     Ok(claims)
 }
 
-fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<Vec<u8>>, Option<String>)> {
+/// Look up a TDX collateral endorsement in the CMW and decode it.
+fn cmw_tdx_collateral(
+    endorsements: &[exports::trustee::verifier::verifier_interface::Endorsement],
+) -> Result<Option<QuoteCollateralV3>> {
+    for endorsement in endorsements {
+        if endorsement.media_type != TDX_COLLATERAL_MEDIA_TYPE {
+            continue;
+        }
+        let collateral: QuoteCollateralV3 =
+            ciborium::de::from_reader(endorsement.payload.as_slice())
+                .context("CBOR-decode TDX collateral endorsement")?;
+        return Ok(Some(collateral));
+    }
+    Ok(None)
+}
+
+fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
     if let Ok(s) = std::str::from_utf8(evidence) {
         if s.trim_start().starts_with('{') {
             let ev: TdxEvidenceJson = serde_json::from_str(s).context("parse evidence JSON")?;
@@ -152,10 +176,10 @@ fn parse_evidence(evidence: &[u8]) -> Result<(Vec<u8>, Option<Vec<u8>>, Option<S
                 ),
                 _ => None,
             };
-            return Ok((quote_bin, ccel, ev.pccs_url));
+            return Ok((quote_bin, ccel));
         }
     }
-    Ok((evidence.to_vec(), None, None))
+    Ok((evidence.to_vec(), None))
 }
 
 fn evaluate_impl(
@@ -163,12 +187,18 @@ fn evaluate_impl(
     expected_report_data: Option<Vec<u8>>,
     expected_init_data_hash: Option<Vec<u8>>,
 ) -> Result<String> {
-    let (quote_bin, ccel_bin, pccs_url) = parse_evidence(&input.evidence)?;
+    let (quote_bin, ccel_bin) = parse_evidence(&input.evidence)?;
     if quote_bin.is_empty() {
         bail!("TDX Quote is empty");
     }
 
-    let custom_claims = ecdsa_quote_verification_via_dcap_qvl(&quote_bin, pccs_url.as_deref())?;
+    // Prefer CMW-provided TDX collateral over fetching from PCS.
+    let cmw_collateral = cmw_tdx_collateral(&input.endorsements)?;
+
+    let custom_claims = ecdsa_quote_verification_via_dcap_qvl(
+        &quote_bin,
+        cmw_collateral,
+    )?;
     let quote = tdx::quote::parse_tdx_quote(&quote_bin).context("parse TDX quote")?;
 
     if let Some(expected) = expected_report_data {
@@ -222,7 +252,7 @@ fn evaluate_impl(
     let Value::Object(ref mut claim_map) = claim else {
         bail!("claim is not a JSON object");
     };
-    claim_map.insert("claims_type".to_string(), Value::String("tdx".to_string()));
+    claim_map.insert("tee_type".to_string(), Value::String("tdx".to_string()));
     claim_map.extend(custom_claims);
 
     Ok(serde_json::to_string(claim_map)?)

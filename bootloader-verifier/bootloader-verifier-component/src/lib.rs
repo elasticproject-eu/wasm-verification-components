@@ -196,10 +196,7 @@ fn evaluate_impl(
         .as_object()
         .cloned()
         .ok_or_else(|| anyhow!("TDX claims are not a JSON object"))?;
-    claims.insert(
-        "claims_type".to_string(),
-        Value::String("bootloader-tdx".to_string()),
-    );
+    claims.insert("tee_type".to_string(), Value::String("tdx".to_string()));
     claims.insert("bootloader_verified".to_string(), Value::Bool(true));
     claims.insert(
         "bootloader_expected_rtmr0".to_string(),

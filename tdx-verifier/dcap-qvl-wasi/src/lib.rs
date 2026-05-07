@@ -6,7 +6,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-const DEFAULT_PCS_URL: &str = "https://api.trustedservices.intel.com";
+/// Phala Network's public PCCS — proxies Intel PCS for TCB / QE-identity and
+/// also serves the `pckcert` endpoint without an `Ocp-Apim-Subscription-Key`,
+/// so quotes whose certification data is `cert_type` 2 / 3 (encrypted PPID)
+/// can be fetched without an Intel API key.
+const DEFAULT_PCS_URL: &str = "https://pccs.phala.network";
+const INTEL_PCS_URL: &str = "https://api.trustedservices.intel.com";
+
+const CERT_TYPE_ENCRYPTED_PPID_2048: u16 = 2;
+const CERT_TYPE_ENCRYPTED_PPID_3072: u16 = 3;
+const CERT_TYPE_PCK_CERT_CHAIN: u16 = 5;
 
 #[derive(Clone, Debug)]
 struct PcsEndpoints {
@@ -388,8 +397,9 @@ fn fetch_collateral_uncached(endpoints: &PcsEndpoints) -> Result<QuoteCollateral
         String::from_utf8(raw_qe_identity).context("QE identity must be UTF-8")?;
 
     // Root CA CRL: try PCCS endpoint first (may return hex-encoded bytes), else CRL DP from root cert.
+    // Skip the PCCS endpoint only when talking to Intel PCS — it doesn't expose `rootcacrl`.
     let mut root_ca_crl = None;
-    if !endpoints.base_url.starts_with(DEFAULT_PCS_URL) {
+    if !endpoints.base_url.starts_with(INTEL_PCS_URL) {
         if let Ok((status, bytes, _)) = http_get_bytes(&endpoints.url_rootcacrl()) {
             if (200..300).contains(&status) {
                 let decoded = decode_crl_bytes(&bytes).unwrap_or(bytes);
@@ -452,25 +462,167 @@ pub fn get_collateral_cached(
     let pccs_url = pccs_url.unwrap_or(DEFAULT_PCS_URL);
 
     let quote_obj = dcap_qvl::quote::Quote::parse(quote).context("parse quote")?;
-    let ca = quote_obj.ca().context("get CA")?;
-    let fmspc = hex::encode_upper(quote_obj.fmspc().context("get FMSPC")?);
     let for_sgx = quote_obj.header.is_sgx();
+
+    // Resolve the PCK certificate chain. For `cert_type` 5 the chain is
+    // already inside the quote; for `cert_type` 2 / 3 we have to ask PCCS for
+    // it using the encrypted-PPID parameters in the quote's certification
+    // data. The PCK chain doesn't go in the FMSPC-keyed cache: a platform
+    // can have several PCK certs at different TCB levels but only one
+    // FMSPC, so caching it would let stale TCB certs leak between runs.
+    let cert_type = quote_obj.inner_cert_type();
+    let pck_chain_pem = match cert_type {
+        CERT_TYPE_PCK_CERT_CHAIN => String::from_utf8(quote_obj.inner_cert_data().to_vec())
+            .context("PCK cert chain in quote is not valid UTF-8")?,
+        CERT_TYPE_ENCRYPTED_PPID_2048 | CERT_TYPE_ENCRYPTED_PPID_3072 => {
+            let params = quote_obj
+                .encrypted_ppid_params()
+                .context("decode encrypted PPID parameters from quote cert data")?;
+            fetch_pck_certificate_chain(pccs_url, quote_obj.qeid(), &params)?
+        }
+        other => bail!(
+            "unsupported quote certification data type {other}; expected 2, 3, or 5"
+        ),
+    };
+
+    let fmspc = fmspc_from_pck_pem(pck_chain_pem.as_bytes())?;
+    let ca = pck_chain_ca(pck_chain_pem.as_bytes());
 
     let endpoints = PcsEndpoints::new(pccs_url, for_sgx, fmspc.clone(), ca);
     if cache_disabled() {
-        return fetch_collateral_uncached(&endpoints);
+        let mut collateral = fetch_collateral_uncached(&endpoints)?;
+        collateral.pck_certificate_chain = Some(pck_chain_pem);
+        return Ok(collateral);
     }
     let key = cache_key(&endpoints.base_url, endpoints.tee, &fmspc, ca);
     let cache_path: PathBuf = cache_dir.join(key);
 
     let now = now_secs()?;
-    if let Some(cached) = read_cache(&cache_path) {
+    if let Some(mut cached) = read_cache(&cache_path) {
         if cached_collateral_is_fresh(&cached, now) {
+            cached.pck_certificate_chain = Some(pck_chain_pem);
             return Ok(cached);
         }
     }
 
-    let collateral = fetch_collateral_uncached(&endpoints)?;
+    let mut collateral = fetch_collateral_uncached(&endpoints)?;
     write_cache(&cache_path, &collateral)?;
+    collateral.pck_certificate_chain = Some(pck_chain_pem);
     Ok(collateral)
+}
+
+/// Fetch the PCK certificate chain for an encrypted-PPID (cert_type 2/3)
+/// quote from a PCS/PCCS, returning the leaf cert followed by its issuer
+/// chain in one PEM string.
+///
+/// Tolerates `SGX-TCBm` headers indicating that PCCS matched the request to
+/// a *lower* TCB level than the one the platform reports. dcap-qvl's
+/// upstream `get_collateral` bails on that mismatch, but in practice the
+/// QE was provisioned with the lower-TCB key (so verification still works)
+/// and we don't want to lock out platforms whose post-microcode-update MPA
+/// re-registration has lagged.
+fn fetch_pck_certificate_chain(
+    pccs_url: &str,
+    qeid: &[u8],
+    params: &dcap_qvl::quote::EncryptedPpidParams,
+) -> Result<String> {
+    let qeid = hex::encode_upper(qeid);
+    let encrypted_ppid = hex::encode_upper(&params.encrypted_ppid);
+    let cpusvn = hex::encode_upper(params.cpusvn);
+    let pcesvn = hex::encode_upper(params.pcesvn.to_le_bytes());
+    let pceid = hex::encode_upper(params.pceid);
+
+    let base_url = pccs_url
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches("/sgx/certification/v4")
+        .trim_end_matches("/tdx/certification/v4");
+    let url = format!(
+        "{base_url}/sgx/certification/v4/pckcert\
+         ?qeid={qeid}&encrypted_ppid={encrypted_ppid}\
+         &cpusvn={cpusvn}&pcesvn={pcesvn}&pceid={pceid}"
+    );
+
+    let (status, body, headers) = http_get_bytes(&url)?;
+    if !(200..300).contains(&status) {
+        bail!("Failed to fetch PCK certificate from {url}: HTTP {status}");
+    }
+    let issuer_chain = get_header(&headers, "SGX-PCK-Certificate-Issuer-Chain")
+        .with_context(|| format!("PCK response from {url} missing issuer-chain header"))?;
+    let pck_leaf = String::from_utf8(body).context("PCK certificate body is not UTF-8")?;
+    Ok(format!("{}\n{issuer_chain}", pck_leaf.trim_end()))
+}
+
+/// Extract the FMSPC from the leaf PCK certificate in a PEM cert chain.
+///
+/// FMSPC lives in the SGX FMSPC extension (OID 1.2.840.113741.1.13.1.4),
+/// encoded as a 6-byte OCTET STRING. We locate it with a fast byte-pattern
+/// search on the DER-decoded leaf cert and return uppercase hex (matching
+/// what PCS returns in `SGX-FMSPC` and what `PcsEndpoints` expects).
+fn fmspc_from_pck_pem(pem: &[u8]) -> Result<String> {
+    let der = first_cert_der(pem).context("decode leaf PCK certificate")?;
+
+    // OID 1.2.840.113741.1.13.1.4 in DER: 06 0a 2a 86 48 86 f8 4d 01 0d 01 04
+    const FMSPC_OID: &[u8] = &[
+        0x06, 0x0a, 0x2a, 0x86, 0x48, 0x86, 0xf8, 0x4d, 0x01, 0x0d, 0x01, 0x04,
+    ];
+    let idx = der
+        .windows(FMSPC_OID.len())
+        .position(|w| w == FMSPC_OID)
+        .context("FMSPC extension OID not found in PCK leaf certificate")?;
+
+    let after = &der[idx + FMSPC_OID.len()..];
+    if after.len() < 8 || after[0] != 0x04 || after[1] != 6 {
+        bail!(
+            "unexpected DER encoding after FMSPC OID: {:02x?}",
+            &after[..after.len().min(8)]
+        );
+    }
+    Ok(hex::encode_upper(&after[2..8]))
+}
+
+/// Detect whether a PCK leaf certificate was issued by Intel SGX PCK
+/// `Processor CA` or `Platform CA` by scanning the chain's DER for the CA
+/// subject CN string. Returns the corresponding PCS query parameter.
+fn pck_chain_ca(pem: &[u8]) -> &'static str {
+    let pem_str = match core::str::from_utf8(pem) {
+        Ok(s) => s,
+        Err(_) => return "processor",
+    };
+    let mut der_blob: Vec<u8> = Vec::new();
+    for chunk in pem_str.split("-----BEGIN CERTIFICATE-----").skip(1) {
+        let Some(end) = chunk.find("-----END CERTIFICATE-----") else {
+            continue;
+        };
+        let b64: String = chunk[..end].lines().map(str::trim).collect();
+        if let Ok(der) = base64::engine::general_purpose::STANDARD.decode(&b64) {
+            der_blob.extend(der);
+        }
+    }
+    if der_blob
+        .windows(b"Intel SGX PCK Platform CA".len())
+        .any(|w| w == b"Intel SGX PCK Platform CA")
+    {
+        "platform"
+    } else {
+        "processor"
+    }
+}
+
+fn first_cert_der(pem: &[u8]) -> Result<Vec<u8>> {
+    let pem_str = core::str::from_utf8(pem).context("PCK chain is not valid UTF-8")?;
+    let begin = pem_str
+        .find("-----BEGIN CERTIFICATE-----")
+        .context("no BEGIN CERTIFICATE marker in PCK chain")?;
+    let body_start = begin + "-----BEGIN CERTIFICATE-----".len();
+    let end = pem_str[body_start..]
+        .find("-----END CERTIFICATE-----")
+        .context("no END CERTIFICATE marker in PCK chain")?;
+    let b64_body: String = pem_str[body_start..body_start + end]
+        .lines()
+        .map(str::trim)
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .decode(&b64_body)
+        .context("base64-decode PCK leaf cert")
 }

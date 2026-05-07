@@ -28,10 +28,6 @@ struct Args {
     #[arg(long)]
     ccel: Option<PathBuf>,
 
-    /// Optional PCCS/PCS base URL (defaults to Intel PCS).
-    #[arg(long)]
-    pccs_url: Option<String>,
-
     /// Base cache directory on the host; a fresh subdirectory is pre-opened to the guest as `cache/`.
     #[arg(long, default_value = ".tdx-verifier-cache")]
     cache_dir: PathBuf,
@@ -99,7 +95,6 @@ fn main() -> Result<()> {
     let evidence_json = serde_json::json!({
         "quote": base64::engine::general_purpose::STANDARD.encode(&quote),
         "cc_eventlog": ccel.as_ref().map(|b| base64::engine::general_purpose::STANDARD.encode(b)),
-        "pccs_url": args.pccs_url,
     });
     let evidence_bytes = serde_json::to_vec(&evidence_json).context("serialize evidence JSON")?;
 
