@@ -84,8 +84,9 @@ struct SignArgs {
     #[arg(long, allow_hyphen_values = true, default_value_t = -1)]
     fuel: i64,
 
-    /// Allow outbound network access for this signer in the optional trust store.
-    #[arg(long, default_value_t = false)]
+    /// Allow outbound network access for this signer in the optional trust
+    /// store. Pass `--allow-network=false` to opt out for sandboxed builds.
+    #[arg(long, default_value_t = true)]
     allow_network: bool,
 
     /// RFC3339 trust-store valid_until timestamp. Defaults to --signature-expires-at.
