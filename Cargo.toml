@@ -2,6 +2,7 @@
 members = [
     "bootloader-verifier/bootloader-verifier-component",
     "bootloader-verifier/bootloader-verifier-test",
+    "infinite-loop-verifier/infinite-loop-verifier-component",
     "snp-verifier/snp-verifier-component",
     "snp-verifier/snp-verifier-test",
     "snp-verifier-host-crypto/snp-verifier-host-crypto-component",

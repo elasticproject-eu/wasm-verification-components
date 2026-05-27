@@ -2041,6 +2041,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "infinite-loop-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
 name = "io-extras"
 version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
