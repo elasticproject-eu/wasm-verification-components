@@ -2146,6 +2146,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "kata-policy-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
+name = "kata-policy-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "kata-policy-core",
+ "serde_json",
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
+name = "kata-policy-verifier-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "kata-policy-core",
+ "serde_json",
+ "sha2",
+ "wasmtime 34.0.2",
+ "wasmtime-wasi 34.0.2",
+ "wasmtime-wasi-http 34.0.2",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3559,6 +3595,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "stub-hardware-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wit-bindgen 0.46.0",
 ]
 
 [[package]]
