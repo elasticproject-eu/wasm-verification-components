@@ -7,6 +7,8 @@ This project contains standalone WebAssembly verification components used by Tru
 - `snp-verifier/`: SNP-related items (`snp-verifier-component`, `snp-verifier-test`)
 - `tools/component-signer/`: adds TrustMee signature expiry metadata and signs verifier components with `wasmsign2`
 
+To write a new component, see [WRITING_A_VERIFIER_COMPONENT.md](WRITING_A_VERIFIER_COMPONENT.md).
+
 ## Build the component
 
 From the repo root (no `cargo component` required; uses the native `wasm32-wasip2` target):
