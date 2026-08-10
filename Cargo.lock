@@ -2791,6 +2791,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "recfa-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde_json",
+ "sha2",
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
+name = "recfa-verifier-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "serde_json",
+ "sha2",
+ "wasmtime 34.0.2",
+ "wasmtime-wasi 34.0.2",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
