@@ -2041,6 +2041,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "infinite-loop-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
 name = "io-extras"
 version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2136,6 +2143,42 @@ checksum = "8c942ebf8e95485ca0d52d97da7c5a2c387d0e7f0ba4c35e93bfcaee045955b3"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kata-policy-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+]
+
+[[package]]
+name = "kata-policy-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "kata-policy-core",
+ "serde_json",
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
+name = "kata-policy-verifier-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "kata-policy-core",
+ "serde_json",
+ "sha2",
+ "wasmtime 34.0.2",
+ "wasmtime-wasi 34.0.2",
+ "wasmtime-wasi-http 34.0.2",
 ]
 
 [[package]]
@@ -2745,6 +2788,29 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "recfa-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde_json",
+ "sha2",
+ "wit-bindgen 0.46.0",
+]
+
+[[package]]
+name = "recfa-verifier-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hex",
+ "serde_json",
+ "sha2",
+ "wasmtime 34.0.2",
+ "wasmtime-wasi 34.0.2",
 ]
 
 [[package]]
@@ -3552,6 +3618,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "stub-hardware-verifier-component"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "wit-bindgen 0.46.0",
 ]
 
 [[package]]
